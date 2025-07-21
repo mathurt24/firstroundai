@@ -1,26 +1,31 @@
-import { drizzle } from "drizzle-orm/neon-http";
-import { neon } from "@neondatabase/serverless";
-import { 
-  candidates, 
-  interviews, 
-  answers, 
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Client } from "pg";
+import {
+  candidates,
+  interviews,
+  answers,
   evaluations,
-  type Candidate, 
+  type Candidate,
   type InsertCandidate,
   type Interview,
   type InsertInterview,
   type Answer,
   type InsertAnswer,
   type Evaluation,
-  type InsertEvaluation
+  type InsertEvaluation,
+  users,
+  type User
 } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 import type { IStorage } from "./storage";
 
-const sql = neon(process.env.DATABASE_URL!);
-const db = drizzle(sql);
+const client = new Client({ connectionString: process.env.DATABASE_URL! });
+const db = drizzle(client);
 
 export class DatabaseStorage implements IStorage {
+  constructor() {
+    client.connect();
+  }
   async createCandidate(candidate: InsertCandidate): Promise<Candidate> {
     const [result] = await db.insert(candidates).values(candidate).returning();
     return result;
@@ -28,6 +33,11 @@ export class DatabaseStorage implements IStorage {
 
   async getCandidateById(id: number): Promise<Candidate | undefined> {
     const result = await db.select().from(candidates).where(eq(candidates.id, id));
+    return result[0];
+  }
+
+  async getCandidateByEmail(email: string): Promise<Candidate | undefined> {
+    const result = await db.select().from(candidates).where(eq(candidates.email, email));
     return result[0];
   }
 
@@ -126,5 +136,42 @@ export class DatabaseStorage implements IStorage {
     const avgScore = total > 0 ? evalResults.reduce((sum, e) => sum + e.overallScore, 0) / total : 0;
 
     return { total, recommended, maybe, rejected, avgScore: Math.round(avgScore * 10) / 10 };
+  }
+
+  async getAllCandidates(): Promise<Candidate[]> {
+    return await db.select().from(candidates);
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.email, email));
+    return result[0];
+  }
+  async createUser(user: { email: string, passwordHash: string, role: string }): Promise<User> {
+    const [result] = await db.insert(users).values({
+      email: user.email,
+      passwordHash: user.passwordHash,
+      role: user.role || "candidate"
+    }).returning();
+    return result;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users);
+  }
+
+  async deleteInterview(id: number): Promise<void> {
+    // Delete answers and evaluation for this interview
+    await db.delete(answers).where(eq(answers.interviewId, id));
+    await db.delete(evaluations).where(eq(evaluations.interviewId, id));
+    await db.delete(interviews).where(eq(interviews.id, id));
+  }
+
+  async deleteCandidate(id: number): Promise<void> {
+    // Delete all interviews (and their answers/evaluations) for this candidate
+    const candidateInterviews = await db.select().from(interviews).where(eq(interviews.candidateId, id));
+    for (const interview of candidateInterviews) {
+      await this.deleteInterview(interview.id);
+    }
+    await db.delete(candidates).where(eq(candidates.id, id));
   }
 }

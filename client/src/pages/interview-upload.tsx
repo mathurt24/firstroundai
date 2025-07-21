@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,10 +9,12 @@ import { FileUpload } from '@/components/file-upload';
 import { AIStatusBanner } from '@/components/ai-status-banner';
 import { startInterview } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/lib/authContext';
 
 export default function InterviewUpload() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user, interviewBlocked } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -21,6 +23,26 @@ export default function InterviewUpload() {
     jobRole: ''
   });
   const [selectedFile, setSelectedFile] = useState<File | undefined>();
+  const [interviewTerminated, setInterviewTerminated] = useState(false);
+
+  useEffect(() => {
+    if (user?.email) {
+      fetch(`/api/candidates/by-email/${encodeURIComponent(user.email)}`)
+        .then(res => res.json())
+        .then(candidate => {
+          if (candidate && candidate.id) {
+            fetch(`/api/candidates/${candidate.id}/results`)
+              .then(res => res.json())
+              .then(results => {
+                if (Array.isArray(results)) {
+                  const hasTerminated = results.some(r => r.interview?.status === 'terminated');
+                  if (hasTerminated) setInterviewTerminated(true);
+                }
+              });
+          }
+        });
+    }
+  }, [user]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -91,6 +113,24 @@ export default function InterviewUpload() {
     });
     setSelectedFile(undefined);
   };
+
+  if (interviewTerminated || interviewBlocked) {
+    return (
+      <div className="max-w-2xl mx-auto p-8 text-center">
+        <div className="text-2xl font-bold text-red-600 mb-4">Interview Blocked</div>
+        <div className="text-gray-700 text-lg">You have left or forfeited your previous interview. You cannot upload a resume or start a new interview.</div>
+      </div>
+    );
+  }
+
+  if (user?.role === 'admin') {
+    return (
+      <div className="max-w-2xl mx-auto p-8 text-center">
+        <div className="text-2xl font-bold text-red-600 mb-4">Access Denied</div>
+        <div className="text-gray-700 text-lg">Admins cannot participate in interviews as candidates.</div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto">

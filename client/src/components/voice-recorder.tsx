@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -10,12 +10,14 @@ interface VoiceRecorderProps {
   onAnswerSubmit: (answer: string) => void;
   onSkip: () => void;
   isSubmitting: boolean;
+  initialAnswer?: string;
 }
 
-export function VoiceRecorder({ question, onAnswerSubmit, onSkip, isSubmitting }: VoiceRecorderProps) {
-  const [manualAnswer, setManualAnswer] = useState('');
+export function VoiceRecorder({ question, onAnswerSubmit, onSkip, isSubmitting, initialAnswer }: VoiceRecorderProps) {
+  const [manualAnswer, setManualAnswer] = useState(initialAnswer || '');
   const [recordingTime, setRecordingTime] = useState(0);
   const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const {
     isSupported: speechRecognitionSupported,
@@ -33,6 +35,10 @@ export function VoiceRecorder({ question, onAnswerSubmit, onSkip, isSubmitting }
     speak,
     stopSpeaking,
   } = useSpeechSynthesis();
+
+  useEffect(() => {
+    setManualAnswer(initialAnswer || '');
+  }, [initialAnswer, question]);
 
   useEffect(() => {
     if (isListening) {
@@ -72,9 +78,33 @@ export function VoiceRecorder({ question, onAnswerSubmit, onSkip, isSubmitting }
     }
   };
 
-  const handlePlayQuestion = () => {
-    if (isSpeaking) {
-      stopSpeaking();
+  const handlePlayQuestion = async () => {
+    const ttsProvider = localStorage.getItem('ttsProvider') || 'python';
+    if (ttsProvider === 'elevenlabs') {
+      // Fetch audio from backend and play
+      try {
+        const res = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: question, provider: 'elevenlabs' })
+        });
+        if (!res.ok) throw new Error('Failed to fetch audio');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        // Always create a new Audio object for Safari compatibility
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.src = '';
+        }
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        audio.play().catch(err => {
+          alert('Safari blocked audio playback. Please click again or check your browser settings.');
+        });
+      } catch (err) {
+        alert('Failed to play ElevenLabs audio. Falling back to browser TTS.');
+        speak(question);
+      }
     } else {
       speak(question);
     }
@@ -118,22 +148,22 @@ export function VoiceRecorder({ question, onAnswerSubmit, onSkip, isSubmitting }
                   variant="ghost"
                   size="sm"
                   onClick={handlePlayQuestion}
-                  disabled={!speechSynthesisSupported}
                   className="text-primary hover:text-blue-700"
                 >
                   <Play className="h-4 w-4 mr-2" />
-                  {isSpeaking ? 'Stop' : 'Play Question'}
+                  Play Question
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => speak(question)}
-                  disabled={!speechSynthesisSupported || isSpeaking}
+                  disabled={isSpeaking}
                   className="text-gray-500 hover:text-gray-700"
                 >
                   <RotateCcw className="h-4 w-4 mr-2" />
                   Repeat
                 </Button>
+                <audio ref={audioRef} hidden />
               </div>
             </div>
           </div>

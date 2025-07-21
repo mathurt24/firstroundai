@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, jsonb, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -15,9 +15,9 @@ export const candidates = pgTable("candidates", {
 export const interviews = pgTable("interviews", {
   id: serial("id").primaryKey(),
   candidateId: integer("candidate_id").references(() => candidates.id).notNull(),
-  questions: jsonb("questions").notNull(),
+  questions: jsonb("questions").notNull(), // Array of question objects
   currentQuestionIndex: integer("current_question_index").default(0).notNull(),
-  status: text("status").default("pending").notNull(), // pending, in-progress, completed, terminated
+  status: text("status").default("pending").notNull(), // pending, in-progress, completed
   createdAt: timestamp("created_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
 });
@@ -28,7 +28,7 @@ export const answers = pgTable("answers", {
   questionIndex: integer("question_index").notNull(),
   questionText: text("question_text").notNull(),
   answerText: text("answer_text").notNull(),
-  score: integer("score").notNull(),
+  score: integer("score").notNull(), // 0-10
   feedback: text("feedback").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -36,7 +36,7 @@ export const answers = pgTable("answers", {
 export const evaluations = pgTable("evaluations", {
   id: serial("id").primaryKey(),
   interviewId: integer("interview_id").references(() => interviews.id).notNull(),
-  overallScore: integer("overall_score").notNull(),
+  overallScore: integer("overall_score").notNull(), // 0-100
   technicalScore: integer("technical_score").notNull(),
   behavioralScore: integer("behavioral_score").notNull(),
   strengths: text("strengths").notNull(),
@@ -96,3 +96,20 @@ export type InsertEvaluation = z.infer<typeof insertEvaluationSchema>;
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
+
+// Question and evaluation types for API responses
+export interface QuestionSet {
+  questions: string[];
+}
+
+export interface AnswerEvaluation {
+  score: number;
+  feedback: string;
+}
+
+export interface InterviewSummary {
+  strengths: string;
+  improvementAreas: string;
+  finalRating: number;
+  recommendation: "Hire" | "Maybe" | "No";
+}

@@ -10,13 +10,17 @@ import {
   type Answer,
   type InsertAnswer,
   type Evaluation,
-  type InsertEvaluation
+  type InsertEvaluation,
+  type User
 } from "@shared/schema";
 
 export interface IStorage {
   // Candidate operations
   createCandidate(candidate: InsertCandidate): Promise<Candidate>;
   getCandidateById(id: number): Promise<Candidate | undefined>;
+  getAllCandidates(): Promise<Candidate[]>;
+  deleteCandidate(id: number): Promise<void>;
+  getCandidateByEmail(email: string): Promise<Candidate | undefined>;
   
   // Interview operations
   createInterview(interview: InsertInterview): Promise<Interview>;
@@ -24,6 +28,7 @@ export interface IStorage {
   getInterviewsByCandidate(candidateId: number): Promise<Interview[]>;
   updateInterviewStatus(id: number, status: string, currentQuestionIndex?: number): Promise<Interview | undefined>;
   completeInterview(id: number): Promise<Interview | undefined>;
+  deleteInterview(id: number): Promise<void>;
   
   // Answer operations
   createAnswer(answer: InsertAnswer): Promise<Answer>;
@@ -42,6 +47,9 @@ export interface IStorage {
     rejected: number;
     avgScore: number;
   }>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  createUser(user: { email: string, passwordHash: string, role: string }): Promise<User>;
+  getAllUsers(): Promise<User[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -49,11 +57,13 @@ export class MemStorage implements IStorage {
   private interviews: Map<number, Interview> = new Map();
   private answers: Map<number, Answer> = new Map();
   private evaluations: Map<number, Evaluation> = new Map();
+  private users: Map<string, User> = new Map();
   
   private candidateIdCounter = 1;
   private interviewIdCounter = 1;
   private answerIdCounter = 1;
   private evaluationIdCounter = 1;
+  private userIdCounter = 1;
 
   async createCandidate(candidate: InsertCandidate): Promise<Candidate> {
     const id = this.candidateIdCounter++;
@@ -68,6 +78,14 @@ export class MemStorage implements IStorage {
 
   async getCandidateById(id: number): Promise<Candidate | undefined> {
     return this.candidates.get(id);
+  }
+
+  async getAllCandidates(): Promise<Candidate[]> {
+    return Array.from(this.candidates.values());
+  }
+
+  async getCandidateByEmail(email: string): Promise<Candidate | undefined> {
+    return Array.from(this.candidates.values()).find(c => c.email === email);
   }
 
   async createInterview(interview: InsertInterview): Promise<Interview> {
@@ -178,6 +196,46 @@ export class MemStorage implements IStorage {
     const avgScore = total > 0 ? evaluations.reduce((sum, e) => sum + e.overallScore, 0) / total : 0;
 
     return { total, recommended, maybe, rejected, avgScore: Math.round(avgScore * 10) / 10 };
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(u => u.email === email);
+  }
+  async createUser(user: { email: string, passwordHash: string, role: string }): Promise<User> {
+    const newUser: User = {
+      id: this.userIdCounter++,
+      email: user.email,
+      passwordHash: user.passwordHash,
+      role: user.role || "candidate",
+      createdAt: new Date()
+    };
+    this.users.set(newUser.email, newUser);
+    return newUser;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return Array.from(this.users.values());
+  }
+
+  async deleteInterview(id: number): Promise<void> {
+    // Delete answers and evaluation for this interview
+    for (const [aid, answer] of this.answers.entries()) {
+      if (answer.interviewId === id) this.answers.delete(aid);
+    }
+    for (const [eid, evaln] of this.evaluations.entries()) {
+      if (evaln.interviewId === id) this.evaluations.delete(eid);
+    }
+    this.interviews.delete(id);
+  }
+
+  async deleteCandidate(id: number): Promise<void> {
+    // Delete all interviews (and their answers/evaluations) for this candidate
+    for (const [iid, interview] of this.interviews.entries()) {
+      if (interview.candidateId === id) {
+        await this.deleteInterview(iid);
+      }
+    }
+    this.candidates.delete(id);
   }
 }
 
