@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 
 // ✅ Vite config compatible with ESM + path aliasing
 export default defineConfig({
+  root: '.',
   plugins: [react()],
   resolve: {
     alias: {
